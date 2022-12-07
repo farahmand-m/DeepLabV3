@@ -3,9 +3,39 @@ import csv
 import os
 import time
 
+import evaluate
 import numpy as np
 import torch
+import torch.nn as nn
 from tqdm import tqdm
+
+
+metric = evaluate.load("mean_iou")
+
+# You should redefine the following. I'm not going to bother with reading it from a file or something.
+id2label = {0: 'Background', 1: 'Foreground'}
+
+
+# the following implementation is borrowed from HuggingFace's tutorial on finetuning SegFormer.
+def compute_metrics(predictions, targets):
+    # currently using _compute instead of compute
+    # see this issue for more info: https://github.com/huggingface/evaluate/pull/328#issuecomment-1286866576
+    metrics = metric._compute(
+            predictions=predictions,
+            references=targets,
+            num_labels=len(id2label),
+            ignore_index=0,
+            reduce_labels=False,
+        )
+
+    # add per category metrics as individual key-value pairs
+    per_category_accuracy = metrics.pop("per_category_accuracy").tolist()
+    per_category_iou = metrics.pop("per_category_iou").tolist()
+
+    metrics.update({f"accuracy_{id2label[i]}": v for i, v in enumerate(per_category_accuracy)})
+    metrics.update({f"iou_{id2label[i]}": v for i, v in enumerate(per_category_iou)})
+
+    return metrics
 
 
 def train_model(model, criterion, dataloaders, optimizer, metrics, bpath,
@@ -31,6 +61,9 @@ def train_model(model, criterion, dataloaders, optimizer, metrics, bpath,
         # Initialize batch summary
         batchsummary = {a: [0] for a in fieldnames}
 
+        predictions = []
+        targets = []
+
         for phase in ['Train', 'Test']:
             if phase == 'Train':
                 model.train()  # Set model to training mode
@@ -44,20 +77,25 @@ def train_model(model, criterion, dataloaders, optimizer, metrics, bpath,
                 # zero the parameter gradients
                 optimizer.zero_grad()
 
+                if len(inputs) == 1:
+                    continue
+
                 # track history if only in train
                 with torch.set_grad_enabled(phase == 'Train'):
                     outputs = model(inputs)
                     loss = criterion(outputs['out'], masks)
-                    y_pred = outputs['out'].data.cpu().numpy().ravel()
-                    y_true = masks.data.cpu().numpy().ravel()
+                    y_pred = outputs['out'].data.cpu().numpy()  # Raw Logits
+                    y_true = masks.data.cpu().numpy()  # Segments Labels
+                    predictions.append(y_pred)
+                    targets.append(y_true)
                     for name, metric in metrics.items():
                         if name == 'f1_score':
-                            # Use a classification threshold of 0.1
+                            # Use a classification threshold of 0.1 - WHY?! They are logit scores.
                             batchsummary[f'{phase}_{name}'].append(
-                                metric(y_true > 0, y_pred > 0.1))
+                                metric(y_true.ravel() > 0, y_pred.ravel() > 0))
                         else:
                             batchsummary[f'{phase}_{name}'].append(
-                                metric(y_true.astype('uint8'), y_pred))
+                                metric(y_true.ravel().astype('uint8'), y_pred.ravel()))
 
                     # backward + optimize only if in training phase
                     if phase == 'Train':
@@ -67,6 +105,17 @@ def train_model(model, criterion, dataloaders, optimizer, metrics, bpath,
             epoch_loss = loss
             batchsummary[f'{phase}_loss'] = epoch_loss.item()
             print('{} Loss: {:.4f}'.format(phase, loss))
+
+        predictions = np.concatenate(predictions, axis=0)
+        predictions = np.squeeze(predictions)
+        predictions = (predictions > 0).astype(np.float32)
+        targets = np.concatenate(targets, axis=0)
+        targets = np.squeeze(targets)
+        targets = (targets > 0).astype(np.float32)
+
+        metrics_values = compute_metrics(predictions, targets)
+        print(metrics_values)
+
         for field in fieldnames[3:]:
             batchsummary[field] = np.mean(batchsummary[field])
         print(batchsummary)

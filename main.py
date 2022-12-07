@@ -3,7 +3,6 @@ from pathlib import Path
 import click
 import torch
 from sklearn.metrics import f1_score, roc_auc_score
-from torch.utils import data
 
 import datahandler
 from model import createDeepLabv3
@@ -46,15 +45,14 @@ def main(data_directory, exp_directory, epochs, batch_size):
     metrics = {'f1_score': f1_score, 'auroc': roc_auc_score}
 
     # Create the dataloader
-    dataloaders = datahandler.get_dataloader_single_folder(
-        data_directory, batch_size=batch_size)
-    _ = train_model(model,
-                    criterion,
-                    dataloaders,
-                    optimizer,
-                    bpath=exp_directory,
-                    metrics=metrics,
-                    num_epochs=epochs)
+    dataloaders = datahandler.get_dataloader_single_folder(data_directory, batch_size=batch_size)
+    train_model(model,
+                criterion,
+                dataloaders,
+                optimizer,
+                bpath=exp_directory,
+                metrics=metrics,
+                num_epochs=epochs)
 
     # Save the trained model
     torch.save(model, exp_directory / 'weights.pt')

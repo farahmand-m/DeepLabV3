@@ -5,3 +5,4 @@ torch==1.6
 torchvision==0.7
 tqdm==4.50
 click
+evaluate
