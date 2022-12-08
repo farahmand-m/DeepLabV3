@@ -108,14 +108,16 @@ def train_model(model, criterion, dataloaders, optimizer, metrics, bpath,
             batchsummary[f'{phase}_loss'] = epoch_loss.item()
             print('{} Loss: {:.4f}'.format(phase, loss))
 
-        predictions = np.concatenate(predictions, axis=0)
-        predictions = np.squeeze(predictions)
-        predictions = (predictions > 0).astype(np.float32)
-        targets = np.concatenate(targets, axis=0)
-        targets = np.squeeze(targets)
-        targets = (targets > 0).astype(np.float32)
+        metrics_values = {}
+        for Y, Y_ in zip(targets, predictions):
+            Y = (Y > 0).astype(np.float32)
+            Y_ = (Y_ > 0).astype(np.float32)
+            batch_values = compute_metrics(Y_, Y)
+            for metric_name, metric_value in batch_values.items():
+                metrics_values[metric_name] = metrics_values.get(metric_name, 0) + metric_value
+        for metric_name, metric_value in metrics_values.items():
+            metrics_values[metric_name] = metrics_values[metric_name] / len(targets)
 
-        metrics_values = compute_metrics(predictions, targets)
         print(metrics_values)
 
         for field in fieldnames[3:]:
