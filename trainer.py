@@ -90,12 +90,14 @@ def train_model(model, criterion, dataloaders, optimizer, metrics, bpath,
                     targets.append(y_true)
                     for name, metric in metrics.items():
                         if name == 'f1_score':
-                            # Use a classification threshold of 0.1 - WHY?! They are logit scores.
-                            batchsummary[f'{phase}_{name}'].append(
-                                metric(y_true.ravel() > 0, y_pred.ravel() > 0))
+                            Y, Y_ = y_true.ravel() > 0, y_pred.ravel() > 0
                         else:
-                            batchsummary[f'{phase}_{name}'].append(
-                                metric(y_true.ravel().astype('uint8'), y_pred.ravel()))
+                            Y, Y_ = y_true.ravel().astype('uint8'), y_pred.ravel()
+                        try:
+                            value = metric(Y, Y_)
+                        except ValueError:
+                            value = 0
+                        batchsummary[f'{phase}_{name}'].append(value)
 
                     # backward + optimize only if in training phase
                     if phase == 'Train':
